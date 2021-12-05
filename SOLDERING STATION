@@ -1,0 +1,211 @@
+#include <Encoder.h>
+#include "LM15SGFNZ07.h"// include the library code
+LM15SGFNZ07 lcd(2, 3, 4, 5, 6); // lcd is at 12,11,5,4,3,2
+char tempprint [8];
+char tempsetprint [8];
+char printTimeChar[8];
+int accel = 4;
+Encoder myEnc(3, 2);
+short oldPosition  = -999;
+int increment = 0;   //Start value on segments
+int SHK_PIN = 7; //Pin for the shock sensor
+
+
+//--------------------- soldering iron variables -----------------------------
+int temp = A0; // Pin Temperature Sensor IN Analog via LM358N
+int pinpwm = 10;// heatempg element port (through the transistor)PWM
+int tempset = 195; // set temperature
+int tempmin = 25; // minimum temperature
+int tempmax = 425; // Maximum temperature
+int tempreal = 250; // current temperature sensor variable
+int temppwmmin = 40; // minimum PWM heater value
+int temppwmmax = 80; // Maximum PWM Heater Value
+int temppwmreal = 0; // current PWM heater value
+unsigned long currentMillis = 0;
+unsigned long prevMillis = 0;
+unsigned long prevMiliTimer = 0;
+unsigned long timeSTBY = 660000;//1200000; //20min
+unsigned long timePWOFF = 2400000; //40min
+int currentTime;
+int onlyOneTimeLCD;
+
+int tempSleep = 100;
+int tempTempSet = tempset;
+int timePrint = (timeSTBY / 1000) / 60; // Convert to minutes
+bool SleepMode = false;
+bool OffMode = false;
+bool timeState = true;
+
+
+void setup() {
+  lcd.init_lcd();// Inicia la pantalla LCD
+  lcd.contrast_lcd(0x11c); //setting new contrast
+  lcd.clear_lcd(WHITE);// Pone la pantalla en blanco
+  lcd.area_lcd(0, 30, 20 , 101,  BLUE);
+  lcd.str_lcd("Made By", 5, 5, 1, WHITE, -1);
+  lcd.str_lcd("TERCAMUSIC", 4, 6, 1, WHITE, -1);
+  delay(5000);
+  lcd.clear_lcd(BLUE);
+  pinMode   (SHK_PIN, INPUT);
+}
+
+void PowerOff(bool OffMode) {
+  onlyOneTimeLCD = 0;
+  while (OffMode != false) {
+    if (onlyOneTimeLCD == 0) {
+      lcd.clear_lcd(WHITE);
+      lcd.area_lcd(0, 12, 55 , 101,  BLUE);
+      lcd.line_lcd(0, 101, 195, 195, YELLOW);//top
+      lcd.line_lcd(0, 101, 140, 140, YELLOW);//bottom
+      lcd.str_lcd("POWER", 2, 2, 2, WHITE, BLUE);
+      lcd.str_lcd("OFF", 4, 3, 2, WHITE, BLUE);
+      //lcd.str_lcd("TEMP", 1, 8, 1, WHITE, -1);
+      //lcd.str_lcd(tempprint, 3, 4, 2, WHITE, BLUE);
+      //lcd.str_lcd("C", 7, 4, 2, WHITE, -1);
+      lcd.str_lcd("By TERCAMUSIC", 2, 8, 1, WHITE, -1);
+      onlyOneTimeLCD++;
+    }
+    if (digitalRead(SHK_PIN) == HIGH) {
+      prevMillis = currentMillis;
+      OffMode = false;
+      tempset = tempTempSet;
+    }
+  }
+  lcd.clear_lcd(BLUE);
+}
+
+void loop() {
+  lcd.str_lcd(" SOLDERING STATION", 0, 1, 1, WHITE, -1);
+  lcd.str_lcd("by tercamusic", 3, 10, 1, WHITE, -1);
+  lcd.str_lcd("HEATER", 6, 9, 1, WHITE, -1);
+  lcd.line_lcd(0, 101, 197, 197, YELLOW);//top
+  lcd.line_lcd(0, 101, 179, 179, YELLOW);//middle
+  lcd.line_lcd(0, 101, 149, 149, YELLOW);//down
+  lcd.line_lcd(0, 101, 134, 134, YELLOW);//bottom
+  lcd.str_lcd("SET TO: ", 2, 3, 1, WHITE, -1);
+  lcd.str_lcd("C", 14, 3, 1, WHITE, -1);
+  lcd.str_lcd("TEMP", 7, 7, 1, WHITE, -1);
+  lcd.str_lcd("C", 7, 3, 2, WHITE, -1);
+  if (tempreal < tempset ) {  // If the temperature of the soldering iron is below the set temperature, then:
+    if ((tempset - tempreal) < 16 & (tempset - tempreal) > 6 ) // Check the difference between the set temperature and the current soldering iron,
+      // If the difference is less than 10 degrees then
+    {
+      temppwmreal = 99;  // We lower the heatempg power (we make 99-255 pwm) - so we remove the inertia of overheatempg
+    }
+    else  if ((tempset - tempreal) < 7 & (tempset - tempreal) > 3)
+    {
+      temppwmreal = 80;  // We lower the heatempg power (we make 99-255 pwm) - so we remove the inertia of overheatempg
+    }
+    else if ((tempset - tempreal) < 4 )
+    {
+      temppwmreal = 45;  // We lower the heatempg power (we make 99-255 pwm) - so we remove the inertia of overheatempg
+    }
+    else {
+      temppwmreal = 230; // Otherwise, we Raise the heatempg power (we are making 0-255 we do 230) to the maximum for fast heatempg to the required temperature.
+    }
+    analogWrite(pinpwm, temppwmreal);     //Output to shim port (transistor) power value
+  }
+
+  else { //Otherwise (if the temperature of the soldering iron is equal or higher than the set one)
+    temppwmreal = 0;  // Turn off the heatempg power (we are making 0-255 pm 0) - so we turn off the soldering iron
+    analogWrite(pinpwm, temppwmreal);   //Output to shim port (transistor) power value
+  }
+  {
+    tempreal = analogRead(0);// read current temperature
+    tempreal = map(tempreal, -50, 850, 0, 500); // need to calculate
+    increment = tempreal;
+    dtostrf(tempreal, 3, 0, tempprint);
+    lcd.str_lcd(tempprint, 3, 3, 2, WHITE, BLUE);
+    dtostrf(tempset, 3, 0, tempsetprint);
+    lcd.str_lcd(tempsetprint, 10, 3, 1, WHITE, BLUE);
+  }
+
+  currentMillis = millis();
+  long newPosition = myEnc.read() / accel;
+  if (newPosition != oldPosition && !SleepMode && !OffMode) {
+    if (newPosition > oldPosition) {
+      if ( tempset >= tempmax)
+      {
+        tempset = tempmax;
+      }
+      increment = tempset;
+      tempset = tempset + 5;
+      tempTempSet = tempset;
+    }
+    else { // other wise do nothing
+    }
+    if (oldPosition > newPosition) {
+      if ( tempset <= tempmin)
+      {
+        tempset = tempmin;
+      }
+      increment = tempset;
+      tempset = tempset - 5;
+      tempTempSet = tempset;
+    }
+    else {
+      // else, do nothing
+    }
+    oldPosition = newPosition;
+  }
+  else if ((unsigned long)(currentMillis - prevMillis) >= timePWOFF && SleepMode) { // POWER OFF
+    tempset = 35;
+    OffMode = true;
+    SleepMode = false;
+    PowerOff(OffMode);
+  }
+  else if ((unsigned long)(currentMillis - prevMillis) >= timeSTBY && digitalRead(SHK_PIN) == LOW && !OffMode) { //STAND BY
+    tempset = tempSleep;
+    SleepMode = true;
+    OffMode = false;
+    prevMiliTimer = currentMillis;
+
+    //dtostrf(timePrint, 3, 0, printTimeChar);
+    if (timeState) {
+      lcd.str_lcd(printTimeChar, 2, 6, 1, BLUE, BLUE);
+      lcd.str_lcd("m", 4, 6, 1, BLUE, -1);
+    }
+    lcd.str_lcd("STBY", 1, 6, 1, YELLOW, BLUE);
+    timeState = false;
+  }
+  else if (digitalRead(SHK_PIN) == HIGH) {
+    prevMillis = currentMillis;
+    prevMiliTimer = currentMillis;
+    lcd.str_lcd("STBY", 1, 6, 1, BLUE, BLUE);
+    tempset = tempTempSet;
+    SleepMode = false;
+    OffMode = false;
+
+    timePrint = (timeSTBY / 1000) / 60;
+    //dtostrf(timePrint, 2, 0, printTimeChar);
+    //lcd.str_lcd(printTimeChar, 2, 6, 1, WHITE, BLUE);
+
+    //lcd.str_lcd("m", 4, 6, 1, WHITE, -1);
+
+    timeState = true;
+  }
+  else if ((unsigned long)(currentMillis - prevMiliTimer) >= 5000 && digitalRead(SHK_PIN) == LOW && !SleepMode) {
+    currentTime = 0;
+
+    if ((unsigned long)(currentMillis - prevMiliTimer) >= 60000) {
+      currentTime = (int)(((currentMillis - prevMiliTimer) / 1000) / 60);
+      prevMiliTimer += 60000;
+    }
+
+    timePrint = timePrint - currentTime;
+    dtostrf(timePrint, 2, 0, printTimeChar);
+    lcd.str_lcd(printTimeChar, 2, 6, 1, WHITE, BLUE);
+    lcd.str_lcd("m", 4, 6, 1, WHITE, -1);
+  }
+
+  if (tempreal < tempset) // if the temperature exceeds your chosen settemp
+  {
+    digitalWrite (pinpwm, 1); // turn on the led
+    lcd.str_lcd("=ON", 13, 9, 1, RED, BLUE);
+  }
+  else // if that doesn't happen, then turn the led off
+  {
+    digitalWrite (pinpwm, 0);
+    lcd.frame_lcd(71, 7, 11, 28, 12, BLUE);
+  }
+}
